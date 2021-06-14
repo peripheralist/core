@@ -39,6 +39,9 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
     // Mapping from token id to creator address
     mapping(uint256 => address) public tokenCreators;
 
+    // Mapping from token id to beneficiary address
+    mapping(uint256 => address) public beneficiaries;
+
     // Mapping from creator address to their (enumerable) set of created tokens
     mapping(address => EnumerableSet.UintSet) private _creatorTokens;
 
@@ -58,9 +61,13 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
     bytes32 public constant PERMIT_TYPEHASH =
         0x49ecf333e5b8c95c40fdafc95c1ad136e8914a8fb55e9dc8bb01eaa83a2df9ad;
 
-    //keccak256("MintWithSig(bytes32 contentHash,bytes32 metadataHash,uint256 creatorShare,uint256 nonce,uint256 deadline)");
+    //keccak256("MintWithSig(bytes32 contentHash,bytes32 metadataHash,uint256 creatorShare,uint256 beneficiaryShare,address beneficiary,uint256 nonce,uint256 deadline)");
     bytes32 public constant MINT_WITH_SIG_TYPEHASH =
-        0x2952e482b8e2b192305f87374d7af45dc2eafafe4f50d26a0c02e90f2fdbe14b;
+        0x7f4da281f866b29dcda411da81a0c48bbb7aa60e34845ce88a54343e732a3417;
+
+    // //keccak256("MintWithSig(bytes32 contentHash,bytes32 metadataHash,uint256 creatorShare,uint256 nonce,uint256 deadline)");
+    // bytes32 public constant MINT_WITH_SIG_TYPEHASH =
+    //     0x2952e482b8e2b192305f87374d7af45dc2eafafe4f50d26a0c02e90f2fdbe14b;
 
     // Mapping from address to token id to permit nonce
     mapping(address => mapping(uint256 => uint256)) public permitNonces;
@@ -204,12 +211,12 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
     /**
      * @notice see IMedia
      */
-    function mint(MediaData memory data, IMarket.BidShares memory bidShares)
-        public
-        override
-        nonReentrant
-    {
-        _mintForCreator(msg.sender, data, bidShares);
+    function mint(
+        MediaData memory data,
+        IMarket.BidShares memory bidShares,
+        address beneficiary
+    ) public override nonReentrant {
+        _mintForCreator(msg.sender, data, bidShares, beneficiary);
     }
 
     /**
@@ -219,6 +226,7 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
         address creator,
         MediaData memory data,
         IMarket.BidShares memory bidShares,
+        address beneficiary,
         EIP712Signature memory sig
     ) public override nonReentrant {
         require(
@@ -239,6 +247,8 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
                             data.contentHash,
                             data.metadataHash,
                             bidShares.creator.value,
+                            bidShares.beneficiary.value,
+                            beneficiary,
                             mintWithSigNonces[creator]++,
                             sig.deadline
                         )
@@ -253,7 +263,7 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
             "Media: Signature invalid"
         );
 
-        _mintForCreator(recoveredAddress, data, bidShares);
+        _mintForCreator(recoveredAddress, data, bidShares, beneficiary);
     }
 
     /**
@@ -467,7 +477,8 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
     function _mintForCreator(
         address creator,
         MediaData memory data,
-        IMarket.BidShares memory bidShares
+        IMarket.BidShares memory bidShares,
+        address beneficiary
     ) internal onlyValidURI(data.tokenURI) onlyValidURI(data.metadataURI) {
         require(data.contentHash != 0, "Media: content hash must be non-zero");
         require(
@@ -491,6 +502,7 @@ contract Media is IMedia, ERC721Burnable, ReentrancyGuard {
         _contentHashes[data.contentHash] = true;
 
         tokenCreators[tokenId] = creator;
+        beneficiaries[tokenId] = beneficiary;
         previousTokenOwners[tokenId] = creator;
         IMarket(marketContract).setBidShares(tokenId, bidShares);
     }

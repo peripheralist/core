@@ -1,15 +1,22 @@
+import { AddressZero } from '@ethersproject/constants';
+import { JsonRpcProvider } from '@ethersproject/providers';
 import chai, { expect } from 'chai';
 import asPromised from 'chai-as-promised';
-import { JsonRpcProvider } from '@ethersproject/providers';
-import { Blockchain } from '../utils/Blockchain';
-import { generatedWallets } from '../utils/generatedWallets';
+import { Bytes, ethers, Wallet } from 'ethers';
+import {
+  arrayify,
+  formatBytes32String,
+  formatUnits,
+  sha256,
+} from 'ethers/lib/utils';
+
 import { MarketFactory } from '../typechain/MarketFactory';
-import { ethers, Wallet } from 'ethers';
-import { AddressZero } from '@ethersproject/constants';
-import Decimal from '../utils/Decimal';
-import { BigNumber, BigNumberish, Bytes } from 'ethers';
-import { MediaFactory } from '../typechain/MediaFactory';
 import { Media } from '../typechain/Media';
+import { MediaFactory } from '../typechain/MediaFactory';
+import { Blockchain } from '../utils/Blockchain';
+import Decimal from '../utils/Decimal';
+import { generatedWallets } from '../utils/generatedWallets';
+import { Ask, Bid, BidShares, MediaData } from './types';
 import {
   approveCurrency,
   deployCurrency,
@@ -20,13 +27,6 @@ import {
   signPermit,
   toNumWei,
 } from './utils';
-import {
-  arrayify,
-  formatBytes32String,
-  formatUnits,
-  sha256,
-} from 'ethers/lib/utils';
-import exp from 'constants';
 
 chai.use(asPromised);
 
@@ -47,36 +47,8 @@ let metadataHashBytes: Bytes;
 let tokenURI = 'www.example.com';
 let metadataURI = 'www.example2.com';
 
-type DecimalValue = { value: BigNumber };
-
-type BidShares = {
-  owner: DecimalValue;
-  prevOwner: DecimalValue;
-  creator: DecimalValue;
-};
-
-type MediaData = {
-  tokenURI: string;
-  metadataURI: string;
-  contentHash: Bytes;
-  metadataHash: Bytes;
-};
-
-type Ask = {
-  currency: string;
-  amount: BigNumberish;
-};
-
-type Bid = {
-  currency: string;
-  amount: BigNumberish;
-  bidder: string;
-  recipient: string;
-  sellOnShare: { value: BigNumberish };
-};
-
 describe('Media', () => {
-  let [
+  const [
     deployerWallet,
     bidderWallet,
     creatorWallet,
@@ -84,12 +56,14 @@ describe('Media', () => {
     prevOwnerWallet,
     otherWallet,
     nonBidderWallet,
+    beneficiaryWallet,
   ] = generatedWallets(provider);
 
-  let defaultBidShares = {
-    prevOwner: Decimal.new(10),
+  const defaultBidShares: BidShares = {
+    prevOwner: Decimal.new(4),
     owner: Decimal.new(80),
-    creator: Decimal.new(10),
+    creator: Decimal.new(11),
+    beneficiary: Decimal.new(5),
   };
 
   let defaultTokenId = 1;
@@ -135,7 +109,8 @@ describe('Media', () => {
     tokenURI: string,
     contentHash: Bytes,
     metadataHash: Bytes,
-    shares: BidShares
+    shares: BidShares,
+    beneficiary: string
   ) {
     const data: MediaData = {
       tokenURI,
@@ -143,7 +118,7 @@ describe('Media', () => {
       contentHash,
       metadataHash,
     };
-    return token.mint(data, shares);
+    return token.mint(data, shares, beneficiary);
   }
 
   async function mintWithSig(
@@ -154,6 +129,7 @@ describe('Media', () => {
     contentHash: Bytes,
     metadataHash: Bytes,
     shares: BidShares,
+    beneficiary: string,
     sig: EIP712Sig
   ) {
     const data: MediaData = {
@@ -163,7 +139,7 @@ describe('Media', () => {
       metadataHash,
     };
 
-    return token.mintWithSig(creator, data, shares, sig);
+    return token.mintWithSig(creator, data, shares, beneficiary, sig);
   }
 
   async function setAsk(token: Media, tokenId: number, ask: Ask) {
@@ -211,7 +187,8 @@ describe('Media', () => {
       tokenURI,
       contentHashBytes,
       metadataHashBytes,
-      defaultBidShares
+      defaultBidShares,
+      beneficiaryWallet.address
     );
 
     await setBid(
@@ -219,9 +196,11 @@ describe('Media', () => {
       defaultBid(currencyAddr, prevOwnerWallet.address),
       tokenId
     );
-    await acceptBid(asCreator, tokenId, {
-      ...defaultBid(currencyAddr, prevOwnerWallet.address),
-    });
+    await acceptBid(
+      asCreator,
+      tokenId,
+      defaultBid(currencyAddr, prevOwnerWallet.address)
+    );
     await setBid(
       asOwner,
       defaultBid(currencyAddr, ownerWallet.address),
@@ -283,11 +262,8 @@ describe('Media', () => {
           tokenURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(10),
-            creator: Decimal.new(90),
-            owner: Decimal.new(0),
-          }
+          defaultBidShares,
+          beneficiaryWallet.address
         )
       ).fulfilled;
 
@@ -321,11 +297,8 @@ describe('Media', () => {
           tokenURI,
           zeroContentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(10),
-            creator: Decimal.new(90),
-            owner: Decimal.new(0),
-          }
+          defaultBidShares,
+          beneficiaryWallet.address
         )
       ).rejectedWith('Media: content hash must be non-zero');
     });
@@ -340,11 +313,8 @@ describe('Media', () => {
           tokenURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(10),
-            creator: Decimal.new(90),
-            owner: Decimal.new(0),
-          }
+          defaultBidShares,
+          beneficiaryWallet.address
         )
       ).fulfilled;
 
@@ -355,11 +325,8 @@ describe('Media', () => {
           tokenURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(10),
-            creator: Decimal.new(90),
-            owner: Decimal.new(0),
-          }
+          defaultBidShares,
+          beneficiaryWallet.address
         )
       ).rejectedWith(
         'Media: a token has already been created with this content hash'
@@ -376,11 +343,8 @@ describe('Media', () => {
           tokenURI,
           contentHashBytes,
           zeroContentHashBytes,
-          {
-            prevOwner: Decimal.new(10),
-            creator: Decimal.new(90),
-            owner: Decimal.new(0),
-          }
+          defaultBidShares,
+          beneficiaryWallet.address
         )
       ).rejectedWith('Media: metadata hash must be non-zero');
     });
@@ -389,11 +353,20 @@ describe('Media', () => {
       const token = await tokenAs(creatorWallet);
 
       await expect(
-        mint(token, metadataURI, '', zeroContentHashBytes, metadataHashBytes, {
-          prevOwner: Decimal.new(10),
-          creator: Decimal.new(90),
-          owner: Decimal.new(0),
-        })
+        mint(
+          token,
+          metadataURI,
+          '',
+          zeroContentHashBytes,
+          metadataHashBytes,
+          {
+            prevOwner: Decimal.new(5),
+            creator: Decimal.new(90),
+            owner: Decimal.new(0),
+            beneficiary: Decimal.new(5),
+          },
+          beneficiaryWallet.address
+        )
       ).rejectedWith('Media: specified uri must be non-empty');
     });
 
@@ -401,11 +374,20 @@ describe('Media', () => {
       const token = await tokenAs(creatorWallet);
 
       await expect(
-        mint(token, '', tokenURI, zeroContentHashBytes, metadataHashBytes, {
-          prevOwner: Decimal.new(10),
-          creator: Decimal.new(90),
-          owner: Decimal.new(0),
-        })
+        mint(
+          token,
+          '',
+          tokenURI,
+          zeroContentHashBytes,
+          metadataHashBytes,
+          {
+            prevOwner: Decimal.new(5),
+            creator: Decimal.new(90),
+            owner: Decimal.new(0),
+            beneficiary: Decimal.new(5),
+          },
+          beneficiaryWallet.address
+        )
       ).rejectedWith('Media: specified uri must be non-empty');
     });
 
@@ -423,7 +405,9 @@ describe('Media', () => {
             prevOwner: Decimal.new(15),
             owner: Decimal.new(15),
             creator: Decimal.new(15),
-          }
+            beneficiary: Decimal.new(15),
+          },
+          beneficiaryWallet.address
         )
       ).rejectedWith('Market: Invalid bid shares, must sum to 100');
     });
@@ -432,11 +416,20 @@ describe('Media', () => {
       const token = await tokenAs(creatorWallet);
 
       await expect(
-        mint(token, metadataURI, '222', contentHashBytes, metadataHashBytes, {
-          prevOwner: Decimal.new(99),
-          owner: Decimal.new(1),
-          creator: Decimal.new(1),
-        })
+        mint(
+          token,
+          metadataURI,
+          '222',
+          contentHashBytes,
+          metadataHashBytes,
+          {
+            prevOwner: Decimal.new(99),
+            owner: Decimal.new(1),
+            creator: Decimal.new(1),
+            beneficiary: Decimal.new(1),
+          },
+          beneficiaryWallet.address
+        )
       ).rejectedWith('Market: Invalid bid shares, must sum to 100');
     });
   });
@@ -456,6 +449,8 @@ describe('Media', () => {
         contentHash,
         metadataHash,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -468,11 +463,8 @@ describe('Media', () => {
           metadataURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(95),
-            creator: Decimal.new(5),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           sig
         )
       ).fulfilled;
@@ -506,6 +498,8 @@ describe('Media', () => {
         tokenURI,
         metadataURI,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -517,11 +511,8 @@ describe('Media', () => {
           metadataURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(95),
-            creator: Decimal.new(5),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           sig
         )
       ).rejectedWith('Media: Signature invalid');
@@ -541,6 +532,8 @@ describe('Media', () => {
         contentHash,
         metadataHash,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -552,11 +545,8 @@ describe('Media', () => {
           metadataURI,
           badContentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(95),
-            creator: Decimal.new(5),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           sig
         )
       ).rejectedWith('Media: Signature invalid');
@@ -574,6 +564,8 @@ describe('Media', () => {
         contentHash,
         metadataHash,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -585,11 +577,8 @@ describe('Media', () => {
           metadataURI,
           contentHashBytes,
           badMetadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(95),
-            creator: Decimal.new(5),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           sig
         )
       ).rejectedWith('Media: Signature invalid');
@@ -603,6 +592,8 @@ describe('Media', () => {
         tokenURI,
         metadataURI,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -614,11 +605,8 @@ describe('Media', () => {
           metadataURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(100),
-            creator: Decimal.new(0),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           sig
         )
       ).rejectedWith('Media: Signature invalid');
@@ -632,6 +620,8 @@ describe('Media', () => {
         tokenURI,
         metadataURI,
         Decimal.new(5).value.toString(),
+        Decimal.new(5).value.toString(),
+        beneficiaryWallet.address,
         1
       );
 
@@ -643,11 +633,8 @@ describe('Media', () => {
           metadataURI,
           contentHashBytes,
           metadataHashBytes,
-          {
-            prevOwner: Decimal.new(0),
-            owner: Decimal.new(95),
-            creator: Decimal.new(5),
-          },
+          defaultBidShares,
+          beneficiaryWallet.address,
           { ...sig, deadline: '1' }
         )
       ).rejectedWith('Media: mintWithSig expired');
@@ -739,7 +726,8 @@ describe('Media', () => {
         '1111',
         otherContentHashBytes,
         metadataHashBytes,
-        defaultBidShares
+        defaultBidShares,
+        beneficiaryWallet.address
       );
       currencyAddr = await deployCurrency();
     });
@@ -900,6 +888,9 @@ describe('Media', () => {
       const beforeCreatorBalance = toNumWei(
         await getBalance(currencyAddr, creatorWallet.address)
       );
+      const beforeBeneficiaryBalance = toNumWei(
+        await getBalance(currencyAddr, beneficiaryWallet.address)
+      );
       await expect(token.acceptBid(0, bid)).fulfilled;
       const newOwner = await token.ownerOf(0);
       const afterOwnerBalance = toNumWei(
@@ -911,15 +902,20 @@ describe('Media', () => {
       const afterCreatorBalance = toNumWei(
         await getBalance(currencyAddr, creatorWallet.address)
       );
+      const afterBeneficiaryBalance = toNumWei(
+        await getBalance(currencyAddr, beneficiaryWallet.address)
+      );
       const bidShares = await auction.bidSharesForToken(0);
 
-      expect(afterOwnerBalance).eq(beforeOwnerBalance + 80);
+      expect(afterOwnerBalance).eq(beforeOwnerBalance + 74);
       expect(afterPrevOwnerBalance).eq(beforePrevOwnerBalance + 10);
-      expect(afterCreatorBalance).eq(beforeCreatorBalance + 10);
+      expect(afterCreatorBalance).eq(beforeCreatorBalance + 11);
+      expect(afterBeneficiaryBalance).eq(beforeBeneficiaryBalance + 5);
       expect(newOwner).eq(otherWallet.address);
-      expect(toNumWei(bidShares.owner.value)).eq(75 * 10 ** 18);
+      expect(toNumWei(bidShares.owner.value)).eq(69 * 10 ** 18);
       expect(toNumWei(bidShares.prevOwner.value)).eq(15 * 10 ** 18);
-      expect(toNumWei(bidShares.creator.value)).eq(10 * 10 ** 18);
+      expect(toNumWei(bidShares.creator.value)).eq(11 * 10 ** 18);
+      expect(toNumWei(bidShares.beneficiary.value)).eq(5 * 10 ** 18);
     });
 
     it('should emit a bid finalized event if the bid is accepted', async () => {
@@ -964,10 +960,13 @@ describe('Media', () => {
         10000000000000000000
       );
       expect(toNumWei(logDescription.args.bidShares.owner.value)).to.eq(
-        80000000000000000000
+        74000000000000000000
       );
       expect(toNumWei(logDescription.args.bidShares.creator.value)).to.eq(
-        10000000000000000000
+        11000000000000000000
+      );
+      expect(toNumWei(logDescription.args.bidShares.beneficiary.value)).to.eq(
+        5000000000000000000
       );
     });
 
@@ -1035,11 +1034,8 @@ describe('Media', () => {
         tokenURI,
         contentHashBytes,
         metadataHashBytes,
-        {
-          prevOwner: Decimal.new(10),
-          creator: Decimal.new(90),
-          owner: Decimal.new(0),
-        }
+        defaultBidShares,
+        beneficiaryWallet.address
       );
     });
 
@@ -1182,11 +1178,8 @@ describe('Media', () => {
         tokenURI,
         otherContentHashBytes,
         metadataHashBytes,
-        {
-          prevOwner: Decimal.new(10),
-          creator: Decimal.new(90),
-          owner: Decimal.new(0),
-        }
+        defaultBidShares,
+        beneficiaryWallet.address
       );
 
       await expect(token.burn(1)).fulfilled;
@@ -1257,11 +1250,8 @@ describe('Media', () => {
         tokenURI,
         otherContentHashBytes,
         metadataHashBytes,
-        {
-          prevOwner: Decimal.new(10),
-          creator: Decimal.new(90),
-          owner: Decimal.new(0),
-        }
+        defaultBidShares,
+        beneficiaryWallet.address
       );
 
       await expect(token.burn(1)).fulfilled;

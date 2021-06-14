@@ -36,6 +36,8 @@ interface IMarket {
         Decimal.D256 creator;
         // % of sale value that goes to the seller (current owner) of the nft
         Decimal.D256 owner;
+        // % of sale value that goes to a beneficiary
+        Decimal.D256 beneficiary;
     }
 
     event BidCreated(uint256 indexed tokenId, Bid bid);
@@ -44,6 +46,9 @@ interface IMarket {
     event AskCreated(uint256 indexed tokenId, Ask ask);
     event AskRemoved(uint256 indexed tokenId, Ask ask);
     event BidShareUpdated(uint256 indexed tokenId, BidShares bidShares);
+
+    // TODO
+    // event BeneficiaryUpdated(uint256 indexed tokenId);
 
     function bidForTokenBidder(uint256 tokenId, address bidder)
         external

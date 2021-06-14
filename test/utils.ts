@@ -1,22 +1,12 @@
-import { BaseErc20Factory, MediaFactory } from '../typechain';
-import { BigNumber, BigNumberish, Bytes, Wallet } from 'ethers';
-import { MaxUint256, AddressZero } from '@ethersproject/constants';
-import { generatedWallets } from '../utils/generatedWallets';
+import { MaxUint256 } from '@ethersproject/constants';
 import { JsonRpcProvider } from '@ethersproject/providers';
 import { formatUnits } from '@ethersproject/units';
-import {
-  recoverTypedMessage,
-  recoverTypedSignature,
-  signTypedData,
-} from 'eth-sig-util';
-import {
-  bufferToHex,
-  ecrecover,
-  fromRpcSig,
-  pubToAddress,
-} from 'ethereumjs-util';
-import { toUtf8Bytes } from 'ethers/lib/utils';
-import { keccak256 } from '@ethersproject/keccak256';
+import { signTypedData } from 'eth-sig-util';
+import { fromRpcSig } from 'ethereumjs-util';
+import { BigNumber, BigNumberish, Wallet } from 'ethers';
+
+import { BaseErc20Factory, MediaFactory } from '../typechain';
+import { generatedWallets } from '../utils/generatedWallets';
 
 let provider = new JsonRpcProvider();
 let [deployerWallet] = generatedWallets(provider);
@@ -140,6 +130,8 @@ export async function signMintWithSig(
   contentHash: string,
   metadataHash: string,
   creatorShare: BigNumberish,
+  beneficiaryShare: BigNumberish,
+  beneficiary: string,
   chainId: number
 ) {
   return new Promise<EIP712Sig>(async (res, reject) => {
@@ -171,6 +163,8 @@ export async function signMintWithSig(
               { name: 'contentHash', type: 'bytes32' },
               { name: 'metadataHash', type: 'bytes32' },
               { name: 'creatorShare', type: 'uint256' },
+              { name: 'beneficiaryShare', type: 'uint256' },
+              { name: 'beneficiary', type: 'address' },
               { name: 'nonce', type: 'uint256' },
               { name: 'deadline', type: 'uint256' },
             ],
@@ -186,6 +180,8 @@ export async function signMintWithSig(
             contentHash,
             metadataHash,
             creatorShare,
+            beneficiaryShare,
+            beneficiary,
             nonce,
             deadline,
           },

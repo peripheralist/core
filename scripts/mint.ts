@@ -61,8 +61,10 @@ async function start() {
     {
       prevOwner: Decimal.new(0),
       creator: Decimal.new(args.creatorShare),
-      owner: Decimal.new(100 - args.creatorShare),
-    }
+      beneficiary: Decimal.new(args.beneficiaryShare),
+      owner: Decimal.new(100 - args.creatorShare - args.beneficiaryShare),
+    },
+    args.beneficiary
   );
 
   console.log(`New piece is minted ☼☽`);

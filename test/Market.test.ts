@@ -1,42 +1,22 @@
+import { AddressZero, MaxUint256 } from '@ethersproject/constants';
+import { JsonRpcProvider } from '@ethersproject/providers';
+import { formatUnits } from '@ethersproject/units';
 import chai, { expect } from 'chai';
 import asPromised from 'chai-as-promised';
-import { JsonRpcProvider } from '@ethersproject/providers';
-import { Blockchain } from '../utils/Blockchain';
-import { generatedWallets } from '../utils/generatedWallets';
-import { MarketFactory } from '../typechain/MarketFactory';
-import { Wallet } from 'ethers';
-import Decimal from '../utils/Decimal';
-import { BigNumber, BigNumberish } from 'ethers';
-import { formatUnits } from '@ethersproject/units';
-import { AddressZero, MaxUint256 } from '@ethersproject/constants';
+import { BigNumber, Wallet } from 'ethers';
+
 import { BaseErc20Factory } from '../typechain/BaseErc20Factory';
 import { Market } from '../typechain/Market';
+import { MarketFactory } from '../typechain/MarketFactory';
+import { Blockchain } from '../utils/Blockchain';
+import Decimal from '../utils/Decimal';
+import { generatedWallets } from '../utils/generatedWallets';
+import { Ask, Bid, BidShares } from './types';
 
 chai.use(asPromised);
 
 let provider = new JsonRpcProvider();
 let blockchain = new Blockchain(provider);
-
-type DecimalValue = { value: BigNumber };
-
-type BidShares = {
-  owner: DecimalValue;
-  prevOwner: DecimalValue;
-  creator: DecimalValue;
-};
-
-type Ask = {
-  currency: string;
-  amount: BigNumberish;
-};
-
-type Bid = {
-  currency: string;
-  amount: BigNumberish;
-  bidder: string;
-  recipient: string;
-  sellOnShare: { value: BigNumberish };
-};
 
 describe('Market', () => {
   let [
@@ -44,12 +24,14 @@ describe('Market', () => {
     bidderWallet,
     mockTokenWallet,
     otherWallet,
+    beneficiaryWallet,
   ] = generatedWallets(provider);
 
-  let defaultBidShares = {
-    prevOwner: Decimal.new(10),
+  let defaultBidShares: BidShares = {
+    prevOwner: Decimal.new(5),
     owner: Decimal.new(80),
     creator: Decimal.new(10),
+    beneficiary: Decimal.new(5),
   };
 
   let defaultTokenId = 1;
@@ -197,15 +179,22 @@ describe('Market', () => {
       await expect(setBidShares(auction, defaultTokenId, defaultBidShares))
         .eventually.fulfilled;
 
-      const tokenBidShares = Object.values(
-        await auction.bidSharesForToken(defaultTokenId)
-      ).map((s) => parseInt(formatUnits(s.value, 'ether')));
+      const tokenBidShares = await auction.bidSharesForToken(defaultTokenId);
 
-      expect(tokenBidShares[0]).eq(
+      const parseBidShareValue = (val) => parseInt(formatUnits(val, 'ether'));
+
+      expect(parseBidShareValue(tokenBidShares.prevOwner.value)).eq(
         toNumEther(defaultBidShares.prevOwner.value)
       );
-      expect(tokenBidShares[1]).eq(toNumEther(defaultBidShares.creator.value));
-      expect(tokenBidShares[2]).eq(toNumEther(defaultBidShares.owner.value));
+      expect(parseBidShareValue(tokenBidShares.creator.value)).eq(
+        toNumEther(defaultBidShares.creator.value)
+      );
+      expect(parseBidShareValue(tokenBidShares.owner.value)).eq(
+        toNumEther(defaultBidShares.owner.value)
+      );
+      expect(parseBidShareValue(tokenBidShares.beneficiary.value)).eq(
+        toNumEther(defaultBidShares.beneficiary.value)
+      );
     });
 
     it('should emit an event when bid shares are updated', async () => {
@@ -229,6 +218,9 @@ describe('Market', () => {
       expect(toNumWei(logDescription.args.bidShares.owner.value)).to.eq(
         toNumWei(defaultBidShares.owner.value)
       );
+      expect(toNumWei(logDescription.args.bidShares.beneficiary.value)).to.eq(
+        toNumWei(defaultBidShares.beneficiary.value)
+      );
     });
 
     it('should reject if the bid shares are invalid', async () => {
@@ -237,6 +229,8 @@ describe('Market', () => {
         prevOwner: Decimal.new(0),
         owner: Decimal.new(0),
         creator: Decimal.new(101),
+        beneficiary: Decimal.new(0),
+        beneficiaryAddress: AddressZero,
       };
 
       await expect(

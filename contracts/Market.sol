@@ -104,11 +104,12 @@ contract Market is IMarket {
             (bidAmount ==
                 splitShare(bidShares.creator, bidAmount)
                     .add(splitShare(bidShares.prevOwner, bidAmount))
-                    .add(splitShare(bidShares.owner, bidAmount)));
+                    .add(splitShare(bidShares.owner, bidAmount))
+                    .add(splitShare(bidShares.beneficiary, bidAmount)));
     }
 
     /**
-     * @notice Validates that the provided bid shares sum to 100
+     * @notice Validates that the provided bid shares sum to 100.
      */
     function isValidBidShares(BidShares memory bidShares)
         public
@@ -117,9 +118,13 @@ contract Market is IMarket {
         returns (bool)
     {
         return
-            bidShares.creator.value.add(bidShares.owner.value).add(
-                bidShares.prevOwner.value
-            ) == uint256(100).mul(Decimal.BASE);
+            bidShares
+                .creator
+                .value
+                .add(bidShares.owner.value)
+                .add(bidShares.beneficiary.value)
+                .add(bidShares.prevOwner.value) ==
+            uint256(100).mul(Decimal.BASE);
     }
 
     /**
@@ -344,16 +349,22 @@ contract Market is IMarket {
             Media(mediaContract).previousTokenOwners(tokenId),
             splitShare(bidShares.prevOwner, bid.amount)
         );
+        // Transfer bid share to beneficiary of media (if applicable)
+        token.safeTransfer(
+            Media(mediaContract).beneficiaries(tokenId),
+            splitShare(bidShares.beneficiary, bid.amount)
+        );
 
         // Transfer media to bid recipient
         Media(mediaContract).auctionTransfer(tokenId, bid.recipient);
 
         // Calculate the bid share for the new owner,
-        // equal to 100 - creatorShare - sellOnShare
+        // equal to 100 - creatorShare - beneficiaryShare - sellOnShare
         bidShares.owner = Decimal.D256(
             uint256(100)
                 .mul(Decimal.BASE)
                 .sub(_bidShares[tokenId].creator.value)
+                .sub(_bidShares[tokenId].beneficiary.value)
                 .sub(bid.sellOnShare.value)
         );
         // Set the previous owner share to the accepted bid's sell-on fee

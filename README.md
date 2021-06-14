@@ -77,6 +77,10 @@ struct BidShares {
   Decimal.D256 creator;
   // % of sale value that goes to the seller (current owner) of the nft
   Decimal.D256 owner;
+  // % of sale value that goes to a beneficiary
+  Decimal.D256 beneficiary;
+  // Arbitrary beneficiary to receive % of sale value
+  address beneficiaryAddress;
 }
 
 struct MediaData {
